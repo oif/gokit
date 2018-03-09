@@ -7,46 +7,36 @@ import (
 	"github.com/oif/gokit/errors"
 )
 
-const testStatus = "test"
+const (
+	testClass = "test"
+
+	testContextKey = "http.status_code"
+)
 
 func TestErrors_WithContext(t *testing.T) {
-	e2 := errors.New(2, testStatus, errors.WithContext(testStatus, 666))
-	if val, ok := e2.Get(testStatus); !ok || val != 666 {
+	e2 := errors.New(2, testClass, errors.WithContext(testContextKey, 666))
+	if val, ok := e2.Get(testContextKey); !ok || val != 666 {
 		t.Fatal("New with context failed")
 	}
 }
 
-func TestErrors_CodeUnique(t *testing.T) {
-	defer func() {
-		e := recover()
-		if e == nil {
-			t.Fatal("Code unique test failed")
-		}
-	}()
-	errors.RequireCodeUnique = errors.Enable
-
-	errors.New(1, testStatus)
-	errors.New(1, testStatus)
-}
-
 func TestErrors_DeepCopy(t *testing.T) {
-	errors.RequireCodeUnique = errors.Disable
-	e1 := errors.New(1, testStatus)
+	e1 := errors.New(1, testClass)
 	e2 := e1.DeepCopy()
-	e2.Set(testStatus, 666)
+	e2.Set(testContextKey, 666)
 
-	if val, ok := e1.Get(testStatus); ok && val == testStatus {
+	if val, ok := e1.Get(testContextKey); ok && val == testClass {
 		t.Fatal("Deep copy failed")
 	}
 }
 
 func TestErrors_Render(t *testing.T) {
-	e := errors.New(3, testStatus)
+	e := errors.New(3, testClass)
 	if echo := e.Error(); echo != "[3_test] map[]" {
 		t.Fatalf("Error func broken, expect `[3_test] map[]` got `%s`", echo)
 	}
 	e.SetRender(func(e errors.E) string {
-		return fmt.Sprintf("%d%s", e.Code(), e.Status())
+		return fmt.Sprintf("%d%s", e.Code(), e.Class())
 	})
 	if echo := e.Error(); echo != "3test" {
 		t.Fatalf("Broken render, expect `3test` got `%s`", echo)
@@ -54,14 +44,13 @@ func TestErrors_Render(t *testing.T) {
 }
 
 func TestErrors_Usage(t *testing.T) {
-	errors.RequireCodeUnique = errors.Disable
-	e1 := errors.New(1, testStatus)
-	e2 := errors.New(2, testStatus)
-	e3 := errors.New(3, testStatus)
+	e1 := errors.New(1, testClass)
+	e2 := errors.New(2, testClass)
+	e3 := errors.New(3, testClass)
 
 	err := e1.DeepCopy()
 	// Set context
-	err.Set(testStatus, "hey")
+	err.Set(testContextKey, "hey")
 	// when code unique is disable
 	err.
 		Is(func() {
@@ -82,8 +71,8 @@ func TestErrors_Usage(t *testing.T) {
 		InternalError errors.E
 	)
 
-	e4 := errors.New(4, testStatus).(NotFoundError)
-	e5 := errors.New(5, testStatus).(InternalError)
+	e4 := errors.New(4, testClass).(NotFoundError)
+	e5 := errors.New(5, testClass).(InternalError)
 
 	err = e4.DeepCopy()
 	switch err.(type) {
@@ -101,8 +90,7 @@ func TestErrors_Usage(t *testing.T) {
 		t.Fatal("type test error")
 	}
 
-	errors.RequireCodeUnique = errors.Enable
-	e7 := errors.New(404, testStatus)
+	e7 := errors.New(404, testClass)
 	err = e7.DeepCopy()
 
 	switch err.Code() {

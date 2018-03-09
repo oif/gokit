@@ -13,7 +13,7 @@ type E interface {
 	Is(func(), ...error) E
 
 	Code() int
-	Status() string
+	Class() string
 	Set(key string, val interface{}) E
 	Get(key string) (interface{}, bool)
 }
@@ -21,14 +21,13 @@ type E interface {
 type context map[string]interface{}
 type render func(E) string
 
-// code is a global unique code
 // status should be a error short description like `NOT_FOUND`, `BAD_REQUEST`
 type fundamental struct {
 	code    int
-	status  string
+	class   string
 	context context
 	render  render
-	_source string
+	source  string
 }
 
 type setContextFn func(*fundamental)
@@ -39,18 +38,11 @@ func WithContext(key string, val interface{}) setContextFn {
 	}
 }
 
-func New(code int, status string, fns ...setContextFn) E {
-	if RequireCodeUnique {
-		if exist := codeBucket[code]; exist {
-			panic(fmt.Sprintf("error code `%d` deplicate", code))
-		}
-		// Code not exist, then record it
-		codeBucket[code] = true
-	}
+func New(code int, class string, fns ...setContextFn) E {
 	f := new(fundamental)
-	f._source = fmt.Sprintf("%p", f)
+	f.source = fmt.Sprintf("%p", f)
 	f.code = code
-	f.status = status
+	f.class = class
 	f.context = make(context)
 
 	for _, fn := range fns {
@@ -59,18 +51,15 @@ func New(code int, status string, fns ...setContextFn) E {
 	return f
 }
 
-func (f *fundamental) Code() int      { return f.code }
-func (f *fundamental) Status() string { return f.status }
+func (f *fundamental) DeepCopy() E   { return &*f }
+func (f *fundamental) Code() int     { return f.code }
+func (f *fundamental) Class() string { return f.class }
 
 func (f *fundamental) Error() string {
 	if f.render != nil {
 		return f.render(f)
 	}
-	return fmt.Sprintf("[%d_%s] %v", f.code, f.status, f.context)
-}
-
-func (f *fundamental) DeepCopy() E {
-	return &*f
+	return fmt.Sprintf("[%d_%s] %v", f.code, f.class, f.context)
 }
 
 func (f *fundamental) Set(key string, val interface{}) E {
@@ -89,13 +78,14 @@ func (f *fundamental) SetRender(r render) E {
 }
 
 func (f *fundamental) Is(fn func(), es ...error) E {
+	defer runtime.HandleCrash()
+
 	for _, e := range es {
-		_e, ok := e.(*fundamental)
+		err, ok := e.(*fundamental)
 		if !ok {
 			continue
 		}
-		if _e._source == f._source {
-			defer runtime.HandleCrash()
+		if err.source == f.source {
 			fn()
 			return f
 		}
