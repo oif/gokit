@@ -1,7 +1,6 @@
 package runtime_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/oif/gokit/runtime"
@@ -10,7 +9,7 @@ import (
 func TestHandleCrash(t *testing.T) {
 	var e []struct{}
 	defer runtime.HandleCrash(func(e interface{}) {
-		os.Exit(0)
+		recover()
 	})
 	t.Log(e[1])
 	t.Fatal("Ever trigger panic")

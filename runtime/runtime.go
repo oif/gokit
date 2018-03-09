@@ -16,7 +16,6 @@ func HandleCrash(handlers ...crashHandler) {
 		for _, handle := range handlers {
 			handle(e)
 		}
-		panic(e)
 	}
 }
 
