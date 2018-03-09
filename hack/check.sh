@@ -13,7 +13,7 @@ set -e
 echo "Testing..."
 
 function runtest {
-  bash -c "umask 0; PATH=$GOROOT/bin:$(pwd)/bin:$PATH go test $@"
+  bash -c "umask 0; PATH=$GOROOT/bin:$(pwd)/bin:$PATH go test $@ --cover"
 }
 
 for t in ${Packages}; do
