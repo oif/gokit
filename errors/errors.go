@@ -16,6 +16,9 @@ type E interface {
 	Class() string
 	Set(key string, val interface{}) E
 	Get(key string) (interface{}, bool)
+
+	is(E) bool
+	identity() string
 }
 
 type context map[string]interface{}
@@ -77,18 +80,34 @@ func (f *fundamental) SetRender(r render) E {
 	return f
 }
 
+func (f *fundamental) identity() string {
+	return f.source
+}
+
+func (f *fundamental) is(e E) bool {
+	return f.identity() == e.identity()
+}
+
 func (f *fundamental) Is(fn func(), es ...error) E {
 	defer runtime.HandleCrash()
 
 	for _, e := range es {
-		err, ok := e.(*fundamental)
+		err, ok := e.(E)
 		if !ok {
 			continue
 		}
-		if err.source == f.source {
+		if err.is(f) {
 			fn()
 			return f
 		}
 	}
 	return f
+}
+
+func Is(left error, right E) bool {
+	casted, ok := left.(E)
+	if !ok {
+		return false
+	}
+	return casted.is(right)
 }
