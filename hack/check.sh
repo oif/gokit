@@ -1,7 +1,7 @@
 #!/bin/sh
 
 set -e
-Packages="$(go list ./... | grep -v -E 'vendor|backbone' | xargs echo)"
+Packages="$(go list ./... | grep -v -E 'vendor' | xargs echo)"
 
 echo "Checking format..."
 go list ./... | grep -v vendor | sed -e s=github.com/oif/gokit/=./= | xargs -n 1 gofmt -l

@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Sirupsen/logrus"
-	hulk_hook "github.com/git-hulk/logrus-hooks"
+	"github.com/oif/gokit/logs/hook"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -101,7 +102,7 @@ func Setup(opts ...logOption) (*logrus.Logger, error) {
 
 	// Set hooks
 	if opt.EnableSourceHook {
-		logger.Hooks.Add(hulk_hook.NewSourceHook(level))
+		logger.Hooks.Add(hook.NewSource(level))
 	}
 	// Done
 
