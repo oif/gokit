@@ -42,34 +42,34 @@ func NewDefaultOption() *Option {
 	return o
 }
 
-type logOption func(*Option)
+type OptionFunc func(*Option)
 
-func LogLevel(level string) logOption {
+func LogLevel(level string) OptionFunc {
 	return func(o *Option) {
 		o.Level = level
 	}
 }
 
-func SetFormatter(formatter logrus.Formatter) logOption {
+func SetFormatter(formatter logrus.Formatter) OptionFunc {
 	return func(o *Option) {
 		o.Formatter = formatter
 	}
 }
 
-func SplitErrorToStderr() logOption {
+func SplitErrorToStderr() OptionFunc {
 	return func(o *Option) {
 		o.SplitErrorToStderr = true
 	}
 }
 
-func EnableSourceHook() logOption {
+func EnableSourceHook() OptionFunc {
 	return func(o *Option) {
 		o.EnableSourceHook = true
 	}
 }
 
 // Setup logger with options
-func Setup(opts ...logOption) (*logrus.Logger, error) {
+func Setup(opts ...OptionFunc) (*logrus.Logger, error) {
 	opt := NewDefaultOption()
 	for _, set := range opts {
 		set(opt)
@@ -111,7 +111,7 @@ func Setup(opts ...logOption) (*logrus.Logger, error) {
 
 // MustSetup return a *logrus.Logger after initialized
 // panic if got error
-func MustSetup(opts ...logOption) *logrus.Logger {
+func MustSetup(opts ...OptionFunc) *logrus.Logger {
 	logger, err := Setup(opts...)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to setup logger: %s", err))
