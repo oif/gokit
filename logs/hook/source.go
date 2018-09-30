@@ -2,7 +2,9 @@ package hook
 
 import (
 	"fmt"
+	"go/build"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -28,9 +30,8 @@ type Source struct {
 
 func NewSource(level logrus.Level) *Source {
 	return &Source{
-		level: level,
-		srcPath: fmt.Sprintf("%s/src/",
-			strings.TrimSuffix(os.Getenv("GOPATH"), "/")),
+		level:   level,
+		srcPath: filepath.Join(build.Default.GOPATH, "src"),
 	}
 }
 
@@ -75,6 +76,6 @@ func (s *Source) Levels() []logrus.Level {
 func (s *Source) makeSourceField(frame runtime.Frame) string {
 	funcSlice := strings.Split(frame.Function, ".")
 	funcName := funcSlice[len(funcSlice)-1:][0]
-	fileName := strings.TrimPrefix(frame.File, s.srcPath)
+	fileName := strings.TrimPrefix(frame.File, s.srcPath+string(os.PathSeparator))
 	return fmt.Sprintf("%s:%d(%s)", fileName, frame.Line, funcName)
 }
