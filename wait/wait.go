@@ -2,6 +2,8 @@ package wait
 
 import (
 	"github.com/oif/gokit/runtime"
+	"os"
+	"os/signal"
 	"sync"
 	"time"
 )
@@ -88,4 +90,18 @@ func resetOrReuseTimer(t *time.Timer, d time.Duration, timeout bool) *time.Timer
 	}
 	t.Reset(d)
 	return t
+}
+
+func Signal(signals ...os.Signal) {
+	sig := make(chan os.Signal)
+	signal.Notify(sig, signals...)
+	Until(func() (bool, error) {
+		get := <-sig
+		for _, ts := range signals {
+			if ts == get {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
 }
