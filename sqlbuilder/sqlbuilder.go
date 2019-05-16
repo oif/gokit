@@ -73,6 +73,9 @@ type Scanable interface {
 }
 
 func (s *SQL) ScanRow(scanner Scanable) (interface{}, error) {
+	if err := s.errorCast(); err != nil {
+		return nil, err
+	}
 	var dsts []interface{}
 	payload := reflect.New(s.PayloadType).Elem()
 	for _, field := range s.Fields {
@@ -86,6 +89,9 @@ func (s *SQL) ScanRow(scanner Scanable) (interface{}, error) {
 }
 
 func (s *SQL) ScanRows(rows *sql.Rows) ([]interface{}, error) {
+	if err := s.errorCast(); err != nil {
+		return nil, err
+	}
 	var objects []interface{}
 	for rows.Next() {
 		object, err := s.ScanRow(rows)
@@ -97,6 +103,10 @@ func (s *SQL) ScanRows(rows *sql.Rows) ([]interface{}, error) {
 	return objects, nil
 }
 
-func (s *SQL) OrderBy(fields string, sec string) {
+func (s *SQL) OrderBy(fields string, sec string) *SQL {
+	if err := s.errorCast(); err != nil {
+		return s
+	}
 	s.OrderByString = fmt.Sprintf("ORDER BY %s %s", fields, sec)
+	return s
 }
