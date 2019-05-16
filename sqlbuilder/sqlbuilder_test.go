@@ -3,11 +3,13 @@ package sqlbuilder_test
 import (
 	"database/sql"
 	"errors"
-	"github.com/go-sql-driver/mysql"
-	"github.com/oif/gokit/sqlbuilder"
+	"fmt"
 	"net"
 	"os"
 	"testing"
+
+	"github.com/go-sql-driver/mysql"
+	"github.com/oif/gokit/sqlbuilder"
 )
 
 var engine *sql.DB
@@ -67,22 +69,24 @@ func (h *Host) Scan(src interface{}) error {
 	return nil
 }
 
-func TestQuery(t *testing.T) {
+func sqlBuilderSelectQuery() ([]TestMySQLAccount, error) {
 	query := sqlbuilder.Select(TestMySQLAccount{}).From("user").Where(`host != "%"`)
 	queryString, err := query.Build()
 	if err != nil {
-		t.Fatalf("Failed to build sql string: %s", err)
+		return nil, fmt.Errorf("failed to build sql string: %s", err)
 	}
-	t.Logf("SQL string: %s", *queryString)
+	return sqlBuilderSelectQueryWithSQL(query, *queryString)
+}
 
+func sqlBuilderSelectQueryWithSQL(query *sqlbuilder.SQL, queryString string) ([]TestMySQLAccount, error) {
 	// Query
-	row, err := engine.Query(*queryString)
+	rows, err := engine.Query(queryString)
 	if err != nil {
-		t.Fatalf("Failed to query: %s", err)
+		return nil, fmt.Errorf("failed to query: %s", err)
 	}
-	result, err := query.ScanRows(row)
+	result, err := query.ScanRows(rows)
 	if err != nil {
-		t.Fatalf("Failed to scan result: %s", err)
+		return nil, fmt.Errorf("failed to scan result: %s", err)
 	}
 	var accounts []TestMySQLAccount
 	for _, res := range result {
@@ -90,8 +94,78 @@ func TestQuery(t *testing.T) {
 			accounts = append(accounts, parsed)
 		}
 	}
-	t.Logf("Got %d accounts", len(accounts))
-	for _, account := range accounts {
-		t.Logf("User: %s, Host: %s\n", account.User, net.IP(account.Host).String())
+	return accounts, nil
+}
+
+func nativeSelectQuery() ([]TestMySQLAccount, error) {
+	// Read direct
+	rows, err := engine.Query(`SELECT user, host FROM user WHERE host != "%"`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query direct: %s", err)
+	}
+	var accounts []TestMySQLAccount
+	for rows.Next() {
+		var account TestMySQLAccount
+		err = rows.Scan(&account.User, &account.Host)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan: %s", err)
+		}
+		accounts = append(accounts, account)
+	}
+	return accounts, nil
+}
+
+func TestSelectQuery(t *testing.T) {
+	nativeSelectAccounts, err := nativeSelectQuery()
+	if err != nil {
+		t.Fatal(err)
+	}
+	SQLBuilderSelectAccounts, err := sqlBuilderSelectQuery()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nativeSelectAccounts) != len(SQLBuilderSelectAccounts) {
+		t.Fatalf("Native got %d, SQL builder got %d", len(nativeSelectAccounts), len(SQLBuilderSelectAccounts))
+	}
+	var hint int
+	for _, na := range nativeSelectAccounts {
+		for _, sa := range SQLBuilderSelectAccounts {
+			if na.User == sa.User && net.IP(na.Host).Equal(net.IP(na.Host)) {
+				hint++
+				break
+			}
+		}
+	}
+	if hint != len(nativeSelectAccounts) {
+		t.Fatalf("Result mismatch")
+	}
+}
+
+func BenchmarkNativeSelectQuery(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		nativeSelectQuery()
+	}
+}
+
+func BenchmarkSQLBuilderSelectQuery(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sqlBuilderSelectQuery()
+	}
+}
+
+func BenchmarkSQLBuilderSelectQueryReused(b *testing.B) {
+	query := sqlbuilder.Select(TestMySQLAccount{}).From("user").Where(`host != "%"`)
+	queryString, err := query.Build()
+	if err != nil {
+		b.Fatalf("failed to build sql string: %s", err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sqlBuilderSelectQueryWithSQL(query, *queryString)
 	}
 }
