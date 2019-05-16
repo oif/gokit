@@ -52,6 +52,9 @@ func (s *SQL) buildSelectString() (*string, error) {
 	if s.Conditions != "" {
 		selectParts = append(selectParts, "WHERE", s.Conditions)
 	}
+	if s.OrderByString != "" {
+		selectParts = append(selectParts, s.OrderByString)
+	}
 	selectString := strings.Join(selectParts, space)
 	return &selectString, nil
 }

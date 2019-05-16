@@ -2,6 +2,7 @@ package sqlbuilder
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
 )
 
@@ -15,13 +16,14 @@ type Field struct {
 }
 
 type SQL struct {
-	Kind        Kind
-	err         error
-	PayloadType reflect.Type
-	FieldKeys   []string
-	Fields      []reflect.StructField
-	Table       string
-	Conditions  string
+	Kind          Kind
+	err           error
+	PayloadType   reflect.Type
+	FieldKeys     []string
+	Fields        []reflect.StructField
+	Table         string
+	OrderByString string
+	Conditions    string
 }
 
 type Kind string
@@ -93,4 +95,8 @@ func (s *SQL) ScanRows(rows *sql.Rows) ([]interface{}, error) {
 		objects = append(objects, object)
 	}
 	return objects, nil
+}
+
+func (s *SQL) OrderBy(fields string, sec string) {
+	s.OrderByString = fmt.Sprintf("ORDER BY %s %s", fields, sec)
 }
