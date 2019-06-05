@@ -25,7 +25,7 @@ func (g *Group) Run(f func()) {
 }
 
 // Execute f func and sleep period every time until stopCh is closed
-func Keep(f func(), period time.Duration, stopCh chan struct{}) {
+func Keep(f func(), period time.Duration, stopCh <-chan struct{}) {
 	var timer *time.Timer
 	var timeout bool
 
