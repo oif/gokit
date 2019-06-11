@@ -27,6 +27,8 @@ type Config struct {
 	// RetryPeriod is the duration the LeaderElector clients should wait
 	// between tries of actions.
 	RetryPeriod time.Duration
+	// RenewDeadline is the duration that timeout for renew
+	RenewDeadline time.Duration
 
 	// Callbacks are callbacks that are triggered during certain lifecycle
 	// events of the LeaderElector
@@ -51,7 +53,7 @@ type Config struct {
 //  * OnChallenge()
 type Callbacks struct {
 	// OnStartedLeading is called when a LeaderElector client starts leading
-	OnStartedLeading func(inFlight <-chan struct{})
+	OnStartedLeading func(ctx context.Context)
 	// OnStoppedLeading is called when a LeaderElector client stops leading
 	OnStoppedLeading func()
 	// OnNewLeader is called when the client observes a leader that is
@@ -85,15 +87,22 @@ func New(c Config) (*Elector, error) {
 	el := new(Elector)
 	el.config = c
 	el.inFlight = make(chan struct{})
+	session, err := concurrency.NewSession(el.config.ETCDClient,
+		concurrency.WithTTL(int(el.config.LeaseDuration.Seconds())))
+	if err != nil {
+		return nil, err
+	}
+	el.el = concurrency.NewElection(session, "/"+el.config.Prefix+"/"+el.config.Group)
 	return el, nil
 }
 
-func RunOrDie(lec Config) {
+func RunOrDie(ctx context.Context, lec Config) {
 	le, err := New(lec)
 	if err != nil {
 		panic(err)
 	}
-	le.Run()
+	defer le.Release(ctx)
+	le.Run(ctx)
 }
 
 func (e *Elector) GetLeader() (string, error) {
@@ -113,39 +122,55 @@ func (e *Elector) IsLeader() bool {
 	return e.currentLeader == e.config.Identity
 }
 
-func (e *Elector) Run() {
+func (e *Elector) Run(ctx context.Context) {
 	defer func() {
 		runtime.HandleCrash()
+		e.config.Callbacks.OnStoppedLeading()
 	}()
-	go e.config.Callbacks.OnStartedLeading(e.inFlight)
-	e.elect()
+	// Acquire leadership
+	if !e.acquire(ctx) {
+		// Failed
+		return
+	}
+	go e.config.Callbacks.OnStartedLeading(ctx)
+	e.renew(ctx)
 }
 
-func (e *Elector) Release() {
+func (e *Elector) Release(ctx context.Context) {
 	close(e.inFlight)
 	e.config.Callbacks.OnStoppedLeading()
-	e.resign()
+	e.resign(ctx)
 }
 
-func (e *Elector) resign() {
+func (e *Elector) resign(ctx context.Context) {
 	if e.el != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), e.config.LeaseDuration)
-		err := e.el.Resign(ctx)
-		if err != nil {
-			cancel()
-		}
+		timeoutCtx, timeoutCancel := context.WithCancel(ctx)
+		defer timeoutCancel()
+		e.el.Resign(timeoutCtx)
 	}
 }
 
-func (e *Elector) elect() {
-	session, err := concurrency.NewSession(e.config.ETCDClient, concurrency.WithTTL(5))
-	if err != nil {
-		panic(err)
-	}
-	e.el = concurrency.NewElection(session, "/"+e.config.Prefix+"/"+e.config.Group)
-
+func (e *Elector) acquire(ctx context.Context) bool {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	success := false
 	wait.Keep(func() {
-		e.tryAcquireOrRenew()
+		success = e.tryAcquireOrRenew(ctx)
+		if !success {
+			// Next retry
+			return
+		}
+		// Acquire success, break the loop
+		cancel()
+	}, e.config.RetryPeriod, ctx.Done())
+	return success
+}
+
+func (e *Elector) renew(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	wait.Keep(func() {
+		e.tryAcquireOrRenew(ctx)
 		maybeNewLeader, err := e.GetLeader()
 		if err == nil {
 			if maybeNewLeader != e.currentLeader {
@@ -156,7 +181,7 @@ func (e *Elector) elect() {
 	}, e.config.RetryPeriod, e.inFlight)
 }
 
-func (e *Elector) tryAcquireOrRenew() bool {
+func (e *Elector) tryAcquireOrRenew(ctx context.Context) bool {
 	now := time.Now()
 	ev := Event{
 		Group:       e.config.Group,
@@ -164,10 +189,9 @@ func (e *Elector) tryAcquireOrRenew() bool {
 		RenewTime:   now,
 		AcquireTime: now,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), e.config.LeaseDuration)
-
-	if err := e.el.Campaign(ctx, e.config.Identity); err != nil {
-		cancel()
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, e.config.RenewDeadline)
+	defer timeoutCancel()
+	if err := e.el.Campaign(timeoutCtx, e.config.Identity); err != nil {
 		// Acquire failed ignore this event
 		if err != context.DeadlineExceeded {
 			ev.Reason = err.Error()
