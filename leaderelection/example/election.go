@@ -58,12 +58,6 @@ func (i *instance) runOrDie() {
 	})
 }
 
-func (i *instance) Shutdown() {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	i.le.Release(ctx)
-}
-
 func newElect() {
 	i := &instance{
 		group:    "example",
