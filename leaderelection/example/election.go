@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/oif/gokit/leaderelection"
@@ -21,7 +22,7 @@ type instance struct {
 	le       *leaderelection.Elector
 }
 
-func (i *instance) onStarted(inFlight <-chan struct{}) {
+func (i *instance) onStarted(ctx context.Context) {
 	fmt.Printf("[%s/%s] started\n", i.group, i.identity)
 }
 
@@ -37,12 +38,16 @@ func (i *instance) onNewLeader(identity string) {
 	fmt.Printf("[%s/%s] new leader: %v\n", i.group, i.identity, identity)
 }
 
-func (i *instance) run() {
-	le, err := leaderelection.New(leaderelection.Config{
+func (i *instance) runOrDie() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	leaderelection.RunOrDie(ctx, leaderelection.Config{
+		Prefix:        "local-test-election",
 		Group:         i.group,
 		Identity:      i.identity,
 		LeaseDuration: 3 * time.Second,
 		RetryPeriod:   3 * time.Second,
+		RenewDeadline: 3 * time.Second,
 		ETCDClient:    etcdClient,
 		Callbacks: leaderelection.Callbacks{
 			OnStartedLeading: i.onStarted,
@@ -51,21 +56,12 @@ func (i *instance) run() {
 			OnNewLeader:      i.onNewLeader,
 		},
 	})
-	if err != nil {
-		panic(err)
-	}
-	go le.Run()
-	i.le = le
-	for {
-		if le.IsLeader() {
-			fmt.Printf("[%s/%s] Current LEADER\n", i.group, i.identity)
-		}
-		time.Sleep(3 * time.Second)
-	}
 }
 
 func (i *instance) Shutdown() {
-	i.le.Release()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	i.le.Release(ctx)
 }
 
 func newElect() {
@@ -73,7 +69,7 @@ func newElect() {
 		group:    "example",
 		identity: randstr.Hex(5),
 	}
-	go i.run()
+	go i.runOrDie()
 	instances = append(instances, i)
 }
 
@@ -85,13 +81,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 1; i++ {
 		newElect()
 	}
 	fmt.Println("All started")
 	wait.Signal(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-
-	for _, i := range instances {
-		i.Shutdown()
-	}
 }
