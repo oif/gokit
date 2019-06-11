@@ -39,9 +39,7 @@ func (i *instance) onNewLeader(identity string) {
 }
 
 func (i *instance) runOrDie() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	leaderelection.RunOrDie(ctx, leaderelection.Config{
+	leaderelection.RunOrDie(context.TODO(), leaderelection.Config{
 		Prefix:        "local-test-election",
 		Group:         i.group,
 		Identity:      i.identity,
