@@ -21,17 +21,20 @@ const (
 	callerTrickySkipping = 5
 	callerTraceDepth     = 3
 	callerFieldName      = "caller"
+	pathSeparator        = string(os.PathSeparator)
 )
 
 type Source struct {
-	level   logrus.Level
-	srcPath string
+	level            logrus.Level
+	srcPath          string
+	useShortenCaller bool
 }
 
 func NewSource(level logrus.Level) *Source {
 	return &Source{
-		level:   level,
-		srcPath: filepath.Join(build.Default.GOPATH, "src"),
+		level:            level,
+		srcPath:          filepath.Join(build.Default.GOPATH, "src"),
+		useShortenCaller: true,
 	}
 }
 
@@ -76,6 +79,14 @@ func (s *Source) Levels() []logrus.Level {
 func (s *Source) makeSourceField(frame runtime.Frame) string {
 	funcSlice := strings.Split(frame.Function, ".")
 	funcName := funcSlice[len(funcSlice)-1:][0]
-	fileName := strings.TrimPrefix(frame.File, s.srcPath+string(os.PathSeparator))
+	fileName := "<file>"
+	if s.useShortenCaller {
+		paths := strings.Split(frame.File, pathSeparator)
+		if len(paths) > 0 {
+			fileName = paths[len(paths)-1]
+		}
+	} else {
+		fileName = strings.TrimPrefix(frame.File, s.srcPath+pathSeparator)
+	}
 	return fmt.Sprintf("%s:%d(%s)", fileName, frame.Line, funcName)
 }
