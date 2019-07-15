@@ -24,31 +24,40 @@ func (g *Group) Run(f func()) {
 	}()
 }
 
-// Execute f func and sleep period every time until stopCh is closed
-func Keep(f func(), period time.Duration, stopCh <-chan struct{}) {
-	var timer *time.Timer
-	var timeout bool
+// Execute f func and sleep period every time until stopCh is closed.
+// If sliding is true, `f` first run will be executed after period. If it is false then
+// `f` runs before time wait.
+func Keep(f func(), period time.Duration, sliding bool, stopCh <-chan struct{}) {
+	var (
+		timer     = time.NewTimer(period)
+		nextLoop  bool
+		iteration = func() {
+			defer func() {
+				runtime.HandleCrash()
+				if !timer.Stop() && !nextLoop {
+					<-timer.C
+				}
+				timer.Reset(period)
+			}()
+
+			f()
+		}
+	)
 
 	for {
-		// Try if should stop
-		select {
-		case <-stopCh:
-			return
-		default:
+		if !sliding {
+			iteration()
 		}
-
-		timer = resetOrReuseTimer(timer, period, timeout)
-
-		func() {
-			defer runtime.HandleCrash()
-			f()
-		}()
 
 		select {
 		case <-stopCh:
 			return
 		case <-timer.C:
-			timeout = true
+			nextLoop = true
+		}
+
+		if sliding {
+			iteration()
 		}
 	}
 }
@@ -76,20 +85,6 @@ func Until(condition conditionFn) error {
 	}(err)
 	<-c
 	return err
-}
-
-// resetOrReuseTimer avoids allocating a new timer if one is already in use.
-// Not safe for multiple threads.
-func resetOrReuseTimer(t *time.Timer, d time.Duration, timeout bool) *time.Timer {
-	if t == nil {
-		return time.NewTimer(d)
-	}
-	// If never stop and never timeout then wait timer expire
-	if !t.Stop() && !timeout {
-		<-t.C
-	}
-	t.Reset(d)
-	return t
 }
 
 func Signal(signals ...os.Signal) {
