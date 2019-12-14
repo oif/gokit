@@ -4,13 +4,15 @@ import (
 	"testing"
 
 	"github.com/oif/gokit/logs"
+
+	"github.com/sirupsen/logrus"
 )
 
 func TestSetup(t *testing.T) {
 	logger, err := logs.Setup(
-		logs.LogLevel("debug"),
-		logs.EnableSourceHook(),
-		logs.SplitErrorToStderr(),
+		logs.WithLogLevel(logrus.DebugLevel),
+		logs.WithSourceHook(),
+		logs.WithSTDSplit(),
 	)
 	if err != nil {
 		t.Fatal(err)

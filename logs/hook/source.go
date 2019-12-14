@@ -22,14 +22,17 @@ const (
 	callerTraceDepth     = 3
 	callerFieldName      = "caller"
 	pathSeparator        = string(os.PathSeparator)
+	fileNamePlaceholder  = "<file>"
 )
 
+// Source implements logrus.Hook
 type Source struct {
 	level            logrus.Level
 	srcPath          string
 	useShortenCaller bool
 }
 
+// NewSource currently don't support specify to enable shorten caller or not, set true as fixed
 func NewSource(level logrus.Level) *Source {
 	return &Source{
 		level:            level,
@@ -38,6 +41,7 @@ func NewSource(level logrus.Level) *Source {
 	}
 }
 
+// Fire implement logrus.Hook.Fire which is to print log
 func (s *Source) Fire(entry *logrus.Entry) error {
 	trace := make([]uintptr, callerTraceDepth)
 	actualDepth := runtime.Callers(callerTrickySkipping, trace)
@@ -45,26 +49,27 @@ func (s *Source) Fire(entry *logrus.Entry) error {
 		return nil
 	}
 	frames := runtime.CallersFrames(trace[:actualDepth])
-	for {
-		current, next := frames.Next()
-		// Skipping all the stack contains logrus
-		if strings.Contains(current.File, "github.com/sirupsen/logrus") {
-			// Oops, hit the bottom of stack we have to break the loop
-			if !next {
-				break
-			}
+	var (
+		currentFrame runtime.Frame
+		next         bool
+	)
 
-			// Keep going
-			continue
+	for {
+		currentFrame, next = frames.Next()
+		// Read next frame till the first one after logrus package or the end
+		if !next ||
+			!strings.Contains(currentFrame.File, "github.com/sirupsen/logrus") {
+			break
 		}
-		// Catch first frame after logrus, construct field
-		entry.Data[callerFieldName] = s.makeSourceField(current)
-		break
 	}
+
+	// Catch first frame after logrus, construct field
+	entry.Data[callerFieldName] = s.makeSourceField(currentFrame)
 
 	return nil
 }
 
+// Levels implements logrus.Hook.Levels which return level(s) should fire
 func (s *Source) Levels() []logrus.Level {
 	levels := make([]logrus.Level, 0)
 	for _, level := range logrus.AllLevels {
@@ -79,13 +84,15 @@ func (s *Source) Levels() []logrus.Level {
 func (s *Source) makeSourceField(frame runtime.Frame) string {
 	funcSlice := strings.Split(frame.Function, ".")
 	funcName := funcSlice[len(funcSlice)-1:][0]
-	fileName := "<file>"
+	fileName := fileNamePlaceholder
 	if s.useShortenCaller {
+		// Once shorten caller enabled, we will use the last segment(separated by os.PathSeparator) as file name
 		paths := strings.Split(frame.File, pathSeparator)
 		if len(paths) > 0 {
 			fileName = paths[len(paths)-1]
 		}
 	} else {
+		// Otherwise, trim $GOPATH/src prefix then we get the full path of caller in repo
 		fileName = strings.TrimPrefix(frame.File, s.srcPath+pathSeparator)
 	}
 	return fmt.Sprintf("%s:%d(%s)", fileName, frame.Line, funcName)

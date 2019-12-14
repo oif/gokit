@@ -1,3 +1,4 @@
+// Package mlog is a logrus integration log library
 package logs
 
 import (
@@ -10,19 +11,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	DefaultLogLevel = "debug"
-)
-
 var (
-	logger *logrus.Logger
-
 	outputSplitKeyword = []byte("level=error")
 )
 
 // Split logs to stdout and stderr
 type outputSplitter struct{}
 
+// Write implement io.Writer which is used in logrus.Out
+// this function will separator logs behind error(included) to stderr, and others to stdout
 func (s *outputSplitter) Write(p []byte) (n int, err error) {
 	if bytes.Contains(p, outputSplitKeyword) {
 		return os.Stderr.Write(p)
@@ -30,81 +27,47 @@ func (s *outputSplitter) Write(p []byte) (n int, err error) {
 	return os.Stdout.Write(p)
 }
 
-type Option struct {
-	Level              string           // Log level: debug, info, warning(warn), error, fatal, panic
-	Formatter          logrus.Formatter // Set log formatter
-	SplitErrorToStderr bool             // Split error level log to stderr
-	EnableSourceHook   bool             // Enable Source Hook(by @git-hulk)
-}
+// OptionFunc contains various option setter
+type OptionFunc func(*logrus.Logger)
 
-func NewDefaultOption() *Option {
-	o := new(Option)
-	return o
-}
-
-type OptionFunc func(*Option)
-
-func LogLevel(level string) OptionFunc {
-	return func(o *Option) {
-		o.Level = level
+// WithLogLevel set logger printable level
+func WithLogLevel(level logrus.Level) OptionFunc {
+	return func(l *logrus.Logger) {
+		l.SetLevel(level)
 	}
 }
 
-func SetFormatter(formatter logrus.Formatter) OptionFunc {
-	return func(o *Option) {
-		o.Formatter = formatter
+// WithFormatter to format log output
+func WithFormatter(formatter logrus.Formatter) OptionFunc {
+	return func(l *logrus.Logger) {
+		l.Formatter = formatter
 	}
 }
 
-func SplitErrorToStderr() OptionFunc {
-	return func(o *Option) {
-		o.SplitErrorToStderr = true
+// WithSTDSplit if enabled will split error(or higher) logs to stderr, otherwise all to stdout
+func WithSTDSplit() OptionFunc {
+	return func(l *logrus.Logger) {
+		l.Out = &outputSplitter{}
 	}
 }
 
-func EnableSourceHook() OptionFunc {
-	return func(o *Option) {
-		o.EnableSourceHook = true
+// WithSourceHook to print caller in log(field)
+func WithSourceHook() OptionFunc {
+	return func(l *logrus.Logger) {
+		l.Hooks.Add(hook.NewSource(l.GetLevel()))
 	}
 }
 
 // Setup logger with options
 func Setup(opts ...OptionFunc) (*logrus.Logger, error) {
-	opt := NewDefaultOption()
-	for _, set := range opts {
-		set(opt)
-	}
+	logger := logrus.New()
 
-	logger = logrus.New()
+	// Default output as stdout
+	logger.Out = os.Stdout
 
-	// Set log level
-	if opt.Level == "" {
-		opt.Level = DefaultLogLevel
+	for _, opt := range opts {
+		opt(logger)
 	}
-	level, err := logrus.ParseLevel(opt.Level)
-	if err != nil {
-		return nil, err
-	}
-	logger.SetLevel(level)
-	// Set log level finished
-
-	// Split log to stderr and stdout
-	if opt.SplitErrorToStderr {
-		logger.Out = &outputSplitter{}
-	}
-	// Done
-
-	// Set formatter
-	if opt.Formatter != nil {
-		logger.Formatter = opt.Formatter
-	}
-	// Done
-
-	// Set hooks
-	if opt.EnableSourceHook {
-		logger.Hooks.Add(hook.NewSource(level))
-	}
-	// Done
 
 	return logger, nil
 }
@@ -115,14 +78,6 @@ func MustSetup(opts ...OptionFunc) *logrus.Logger {
 	logger, err := Setup(opts...)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to setup logger: %s", err))
-	}
-	return logger
-}
-
-// GetLogger return initialized logger, panic when logger is uninitialized
-func GetLogger() *logrus.Logger {
-	if logger == nil {
-		panic("logger uninitialized")
 	}
 	return logger
 }
