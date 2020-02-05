@@ -3,12 +3,13 @@ package leaderelection
 import (
 	"context"
 	"errors"
-	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/clientv3/concurrency"
 	"time"
 
 	"github.com/oif/gokit/runtime"
 	"github.com/oif/gokit/wait"
+
+	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/clientv3/concurrency"
 )
 
 const (
@@ -162,7 +163,7 @@ func (e *Elector) acquire(ctx context.Context) bool {
 		}
 		// Acquire success, break the loop
 		cancel()
-	}, e.config.RetryPeriod, ctx.Done())
+	}, e.config.RetryPeriod, false, ctx.Done())
 	return success
 }
 
@@ -178,7 +179,7 @@ func (e *Elector) renew(ctx context.Context) {
 				e.currentLeader = maybeNewLeader
 			}
 		}
-	}, e.config.RetryPeriod, e.inFlight)
+	}, e.config.RetryPeriod, false, e.inFlight)
 }
 
 func (e *Elector) tryAcquireOrRenew(ctx context.Context) bool {
