@@ -175,7 +175,7 @@ func (p *piper) receivePacket() {
 			dropped = true
 			return
 		}
-		if len(data.Data) != p.size {
+		if len(data.Data) < p.size {
 			RT.Error = fmt.Errorf("invalid response size: %d(expecte %d)", len(data.Data), p.size)
 		}
 		// Ignore currently data validate
