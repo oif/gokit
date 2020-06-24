@@ -16,13 +16,13 @@ import (
 )
 
 type RoundTrip struct {
-	Sequence    int
-	PayloadSize int
-	Target      net.IP
-	TTL         int
-	Error       error
-	EmittedAt   time.Time
-	RTT         time.Duration
+	Sequence    int           `json:"sequence"`
+	PayloadSize int           `json:"payloadSize"`
+	Target      net.IP        `json:"target"`
+	TTL         int           `json:"TTL"`
+	Error       error         `json:"error"`
+	EmittedAt   time.Time     `json:"-"`
+	RTT         time.Duration `json:"RTT"`
 }
 
 func (rt RoundTrip) String() string {
