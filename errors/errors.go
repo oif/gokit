@@ -47,3 +47,18 @@ func Parse(err error) (*Error, bool) {
 	e, ok := err.(*Error)
 	return e, ok
 }
+
+func Is(one error, theOther error) bool {
+	if one == theOther {
+		return true
+	}
+	parsedOne, ok := Parse(one)
+	if !ok {
+		return false
+	}
+	parsedTheOther, ok := Parse(theOther)
+	if !ok {
+		return false
+	}
+	return parsedOne.Class() == parsedTheOther.Class() && parsedOne.Message() == parsedTheOther.Message()
+}
