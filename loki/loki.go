@@ -1,5 +1,6 @@
-//go:generate protoc -I . -I $GOPATH/src --go_out=. loki.proto
 // nolint
+//
+//go:generate protoc -I . -I $GOPATH/src --go_out=. loki.proto
 package loki
 
 import (
@@ -23,7 +24,7 @@ import (
 
 const (
 	contentType  = "application/x-protobuf"
-	postPath     = "/api/prom/push"
+	postPath     = "/loki/api/v1/push"
 	maxErrMsgLen = 1024
 )
 
@@ -40,40 +41,91 @@ type payload struct {
 
 type Loki struct {
 	entry
-	LokiURL       string
-	BatchWait     time.Duration
-	BatchSize     int
-	payloadCh     chan payload
-	hostname      string
-	prependLabels map[model.LabelName]model.LabelValue
-	wg            sync.WaitGroup
-	username      string
-	password      string
-	customHeader  map[string]string
+	lokiURL         string
+	batchWait       time.Duration
+	batchSize       int
+	payloadCh       chan payload
+	hostname        string
+	prependLabels   map[model.LabelName]model.LabelValue
+	wg              sync.WaitGroup
+	username        string
+	password        string
+	customHeader    map[string]string
+	lokiClient      *http.Client
+	honorOriginTime bool
 }
 
-func NewLoki(URL string, batchSize, batchWait int, username, password string, customHeader map[string]string) (*Loki, error) {
+type Options struct {
+	BatchSize       int // send message lines in one streams
+	BatchWait       int
+	Username        string
+	Password        string
+	LokiTimeout     int  // always make sure calling loki api can be timed out
+	HonorOriginTime bool // keep the message time as is rather than changing to current even though messages lagging behind
+}
+
+func WithBatch(batchSize, batchWait int) func(*Options) {
+	return func(o *Options) {
+		o.BatchSize = batchSize
+		o.BatchWait = batchWait
+
+	}
+}
+
+func WithAuth(username, password string) func(*Options) {
+	return func(o *Options) {
+		o.Username = username
+		o.Password = password
+	}
+}
+
+func WithOthers(lokiTimeout int, honorOriginTime bool) func(*Options) {
+	return func(o *Options) {
+		o.LokiTimeout = lokiTimeout
+		o.HonorOriginTime = honorOriginTime
+	}
+}
+
+func NewLoki(URL string, customHeader map[string]string, opts ...func(*Options)) (*Loki, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, err
 	}
-	return NewLokiCustomHostname(URL, batchSize, batchWait, hostname, username, password, customHeader)
+	return NewLokiCustomHostname(URL, hostname, customHeader, opts...)
 }
 
-func NewLokiCustomHostname(URL string, batchSize, batchWait int, hostname, username, password string, customHeader map[string]string) (*Loki, error) {
-	l := &Loki{
-		LokiURL:       URL,
-		BatchSize:     batchSize,
-		BatchWait:     time.Duration(batchWait) * time.Second,
-		payloadCh:     make(chan payload, batchSize),
-		prependLabels: make(map[model.LabelName]model.LabelValue),
-		hostname:      hostname,
-		username:      username,
-		password:      password,
-		customHeader:  customHeader,
+func NewLokiCustomHostname(URL, hostname string, customHeader map[string]string, opts ...func(*Options)) (*Loki, error) {
+
+	options := &Options{
+		BatchSize:       1000,
+		BatchWait:       10,
+		Username:        "",
+		Password:        "",
+		LokiTimeout:     10,
+		HonorOriginTime: false,
 	}
 
-	u, err := url.Parse(l.LokiURL)
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	l := &Loki{
+		lokiURL:       URL,
+		batchSize:     options.BatchSize,
+		batchWait:     time.Duration(options.BatchWait) * time.Second,
+		payloadCh:     make(chan payload, options.BatchSize),
+		prependLabels: make(map[model.LabelName]model.LabelValue),
+		hostname:      hostname,
+		username:      options.Username,
+		password:      options.Password,
+		customHeader:  customHeader,
+		lokiClient: &http.Client{
+			Timeout: time.Duration(options.LokiTimeout) * time.Second,
+		},
+		honorOriginTime: options.HonorOriginTime,
+	}
+
+	u, err := url.Parse(l.lokiURL)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +133,7 @@ func NewLokiCustomHostname(URL string, batchSize, batchWait int, hostname, usern
 		u.Path = postPath
 		q := u.Query()
 		u.RawQuery = q.Encode()
-		l.LokiURL = u.String()
+		l.lokiURL = u.String()
 	}
 	l.wg.Add(1)
 	go l.run()
@@ -109,7 +161,7 @@ func (l *Loki) run() {
 	var (
 		curPktTime  time.Time
 		lastPktTime time.Time
-		maxWait     = time.NewTimer(l.BatchWait)
+		maxWait     = time.NewTimer(l.batchWait)
 		batch       = map[model.Fingerprint]*StreamAdapter{}
 		batchSize   = 0
 	)
@@ -129,7 +181,7 @@ func (l *Loki) run() {
 			}
 			curPktTime = p.at
 			// guard against entry out of order errors
-			if lastPktTime.After(curPktTime) {
+			if !l.honorOriginTime && lastPktTime.After(curPktTime) {
 				curPktTime = time.Now()
 			}
 			lastPktTime = curPktTime
@@ -149,13 +201,13 @@ func (l *Loki) run() {
 			}
 			l.entry.EntryAdapter.Line = p.line
 
-			if batchSize+len(l.entry.Line) > l.BatchSize {
+			if batchSize+len(l.entry.Line) > l.batchSize {
 				if err := l.sendBatch(batch); err != nil {
 					fmt.Fprintf(os.Stderr, "%v ERROR: send size batch: %v\n", lastPktTime, err)
 				}
 				batchSize = 0
 				batch = map[model.Fingerprint]*StreamAdapter{}
-				maxWait.Reset(l.BatchWait)
+				maxWait.Reset(l.batchWait)
 			}
 
 			batchSize += len(l.entry.Line)
@@ -177,7 +229,7 @@ func (l *Loki) run() {
 				batchSize = 0
 				batch = map[model.Fingerprint]*StreamAdapter{}
 			}
-			maxWait.Reset(l.BatchWait)
+			maxWait.Reset(l.batchWait)
 		}
 	}
 }
@@ -213,7 +265,7 @@ func encodeBatch(batch map[model.Fingerprint]*StreamAdapter) ([]byte, error) {
 }
 
 func (l *Loki) send(ctx context.Context, buf []byte) (int, error) {
-	req, err := http.NewRequest("POST", l.LokiURL, bytes.NewReader(buf))
+	req, err := http.NewRequest("POST", l.lokiURL, bytes.NewReader(buf))
 	if err != nil {
 		return -1, err
 	}
@@ -225,7 +277,7 @@ func (l *Loki) send(ctx context.Context, buf []byte) (int, error) {
 	for key, value := range l.customHeader {
 		req.Header.Set(key, value)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := l.lokiClient.Do(req)
 	if err != nil {
 		return -1, err
 	}
