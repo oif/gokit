@@ -8,13 +8,34 @@ import (
 type Error struct {
 	class   string
 	message string
+	i18n    I18N
 }
 
-func Declare(class, message string) error {
-	return &Error{
+func Declare(class, message string, opts ...DeclareOptional) error {
+	err := &Error{
 		class:   class,
 		message: message,
 	}
+
+	for _, opt := range opts {
+		opt.Apply(err)
+	}
+
+	return err
+}
+
+type I18N map[Lang]string
+
+func (i18n I18N) Apply(err *Error) {
+	cpy := make(I18N)
+	for k, v := range i18n {
+		cpy[k] = v
+	}
+	err.i18n = cpy
+}
+
+type DeclareOptional interface {
+	Apply(err *Error)
 }
 
 func New(message string) error {
@@ -30,6 +51,15 @@ func (e *Error) Class() string {
 }
 
 func (e *Error) Message() string {
+	return e.message
+}
+
+func (e *Error) I18NMessage(lang Lang) string {
+	if e.i18n != nil {
+		if msg, ok := e.i18n[lang]; ok {
+			return msg
+		}
+	}
 	return e.message
 }
 
