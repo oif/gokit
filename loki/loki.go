@@ -237,16 +237,46 @@ func (l *Loki) run() {
 func (l *Loki) sendBatch(batch map[model.Fingerprint]*StreamAdapter) error {
 	buf, err := encodeBatch(batch)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode batch error: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
-	_, err = l.send(ctx, buf)
-	if err != nil {
-		return err
+	// 重试相关配置
+	maxRetries := 3
+	backoffBase := time.Second
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// 创建新的context，每次重试都有完整的超时时间
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+		statusCode, err := l.send(ctx, buf)
+		cancel() // 立即释放context资源
+
+		if err == nil && statusCode >= 200 && statusCode < 300 {
+			return nil // 发送成功
+		}
+
+		lastErr = err
+		if err != nil {
+			// 记录重试信息
+			fmt.Fprintf(os.Stderr, "%v ERROR: send batch attempt %d failed: %v\n",
+				time.Now(), attempt+1, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "%v ERROR: send batch attempt %d failed with status code: %d\n",
+				time.Now(), attempt+1, statusCode)
+		}
+
+		// 最后一次重试就不需要等待了
+		if attempt < maxRetries-1 {
+			// 使用指数退避策略，每次重试等待时间翻倍
+			backoffTime := backoffBase * time.Duration(1<<uint(attempt))
+			time.Sleep(backoffTime)
+		}
 	}
-	return nil
+
+	// 所有重试都失败了
+	return fmt.Errorf("failed to send batch after %d attempts, last error: %v",
+		maxRetries, lastErr)
 }
 
 func encodeBatch(batch map[model.Fingerprint]*StreamAdapter) ([]byte, error) {
